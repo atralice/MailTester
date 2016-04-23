@@ -22,9 +22,12 @@ def get_result(email, conn):
     username, domain = email.split('@')
     result = {'code':0, 'message': 'Unknown Exception'}
     mail_servers = []
+    resolver = dns.resolver
+    resolver.timeout = 2
+    resolver.lifetime = 2
 
     try:
-        mail_servers = sorted([x for x in dns.resolver.query(domain, 'MX')], key=lambda k: k.preference)
+        mail_servers = sorted([x for x in resolver.query(domain, 'MX')], key=lambda k: k.preference)
     except dns.exception.Timeout as ex:
         result = {'code':5, 'message': 'DNS Lookup Timeout'}
     except dns.resolver.NXDOMAIN as ex:
@@ -38,15 +41,18 @@ def get_result(email, conn):
 
         print 'Attempting to connect to ' + str(mail_server.exchange)[:-1]
         try:
-            server = smtplib.SMTP(str(mail_server.exchange)[:-1])
+            server = smtplib.SMTP(str(mail_server.exchange)[:-1], timeout=15)
         except Exception as ex:
             result = {'code':6, 'message': 'Unable to connect to Mail Server'}
             continue
         try:
             (code, msg) = server.helo('MailTester')
-            (code, msg) = server.docmd('MAIL FROM:', '<mailtester@gmail.com>')
+            print 'HELO: ' + str(msg) + ', Code: ' + str(code)
+            (code, msg) = server.docmd('MAIL FROM:', '<verify@do.com>')
+            print 'MAIL FROM : ' + str(msg) + ', Code: ' + str(code)
             if 200 <= code <= 299:
                 (code, msg) = server.docmd('RCPT TO:', '<{}>'.format(email))
+                print 'RCPT TO : ' + str(msg) + ', Code: ' + str(code)
                 if code >= 500:
                     result = {'code':3, 'message': 'Mail server found for domain, but the email address is not valid'}
                 else:
@@ -90,13 +96,14 @@ class root:
 
 if __name__ == "__main__":
 
-    server_host = '0.0.0.0'
+    server_host = '127.0.0.1'
     server_port = int(sys.argv[1]) if len(sys.argv) > 1 else 9090
     current_dir = os.path.dirname(os.path.abspath(__file__))
     cherrypy.config.update({
         'server.socket_host' : server_host,
         'server.socket_port' : server_port,
-        'tools.CORS.on' : True
+        'tools.CORS.on' : True,
+        'log.screen' : False,
     })
     cherrypy.server_port = server_port
     cherrypy.process_start_time = datetime.datetime.now()
@@ -112,3 +119,4 @@ if __name__ == "__main__":
         cherrypy.tree.mount(root)
         cherrypy.engine.start()
         cherrypy.engine.block()
+
